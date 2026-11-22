@@ -3,7 +3,7 @@ import {
   signInWithPopup,
   signInWithEmailAndPassword
 } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, googleProvider, db } from "../firebase";
 import busgoLoginLogo from "../assets/busgo-login-logo.png";
 import googleReferenceLogo from "../assets/google-reference-logo.png";
@@ -32,12 +32,35 @@ function Login({ onLogin, go }) {
   return userData.role;
 };
 
+const getOrCreateUserRole = async (user) => {
+  const userRef = doc(db, "users", user.uid);
+  const userSnap = await getDoc(userRef);
+
+  if (!userSnap.exists()) {
+    await setDoc(userRef, {
+      email: user.email,
+      name: user.displayName || "",
+      role: "user",
+      createdAt: serverTimestamp()
+    });
+    return "user";
+  }
+
+  const role = userSnap.data().role;
+
+  if (!["admin", "user"].includes(role)) {
+    throw new Error("Invalid user role.");
+  }
+
+  return role;
+};
+
  const googleLogin = async () => {
   try {
     setError("");
 
     const result = await signInWithPopup(auth, googleProvider);
-    const role = await getUserRole(result.user.uid);
+    const role = await getOrCreateUserRole(result.user);
 
     onLogin({
       name: result.user.displayName,

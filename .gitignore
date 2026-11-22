@@ -8,3 +8,4 @@ serviceAccountKey.json
 serviceAccountKey*
 backend-api/
 .vscode/
+.vscode/settings.json
