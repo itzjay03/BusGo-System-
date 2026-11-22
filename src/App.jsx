@@ -1,3 +1,8 @@
+
+import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import ProtectedRoute from "./components/ProtectedRoute";
+import AccessDenied from "./pages/AccessDenied";
+import NotFound from "./pages/NotFound";
 import { useEffect, useState } from "react";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
@@ -20,11 +25,32 @@ import MyTrip from "./pages/MyTrip";
 import TravelCenter from "./pages/TravelCenter";
 import OperationsCenter from "./pages/OperationsCenter";
 import GroupBooking from "./pages/GroupBooking";
+import OfflineBanner from "./components/OfflineBanner";
 import Notifications from "./pages/Notifications";
 import Reviews from "./pages/Reviews";
+import { API_URL } from "./config";
+
+
+
+const ROUTES = {
+  home: "/", login: "/login", register: "/register",
+  schedules: "/schedules", dashboard: "/dashboard", "admin-dashboard": "/admin",
+  seats: "/seats", "passenger-details": "/passenger-details", payment: "/payment",
+  ticket: "/ticket", bookings: "/bookings", "my-trip": "/my-trip",
+  "travel-center": "/travel-center", "group-booking": "/group-booking",
+  reviews: "/reviews", notifications: "/notifications", profile: "/profile",
+  operations: "/operations", "api-data": "/api-data"
+};
+
+const PUBLIC_PATHS = ["/", "/login", "/register", "/schedules"];
+const ANY_ROLE_PATHS = ["/dashboard", "/bookings", "/ticket", "/travel-center", "/profile", "/notifications"];
+const USER_ONLY_PATHS = ["/seats", "/passenger-details", "/payment", "/reviews", "/group-booking", "/my-trip"];
+const ADMIN_ONLY_PATHS = ["/admin", "/operations", "/api-data"];
 
 function App() {
-  const [page, setPage] = useState("home");
+ const navigate = useNavigate();
+const location = useLocation();
+const page = Object.keys(ROUTES).find((key) => ROUTES[key] === location.pathname) || "";
   const [selectedBus, setSelectedBus] = useState(null);
   const [selectedSeat, setSelectedSeat] = useState(null);
   const [passenger, setPassenger] = useState(null);
@@ -43,7 +69,7 @@ function App() {
 
     const loadBuses = async () => {
       try {
-        const response = await fetch("http://localhost:8080/api/buses");
+        const response = await fetch(`${API_URL}/api/buses`);
         if (!response.ok) throw new Error(`Bus API returned ${response.status}`);
         const data = await response.json();
         if (!cancelled && Array.isArray(data) && data.length) {
@@ -140,7 +166,10 @@ function App() {
     return () => window.removeEventListener("storage", syncBusGoData);
   }, []);
 
-  const go = (nextPage) => { setPage(nextPage); window.scrollTo({ top: 0, behavior: "smooth" }); };
+ const go = (nextPage) => {
+  navigate(ROUTES[nextPage] || "/");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
 
   const addActivity = (action, details, bookingId = null, tone = "info") => {
     setActivityLogs((current) => [{
@@ -309,10 +338,10 @@ function App() {
       : account.role === "admin"
         ? <AdminOverview bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} />
         : <UserOverview account={account} bookings={bookings} reviews={reviews} go={go} />;
-    if (page === "api-data") {
+   if (page === "api-data") {
   return (
     <>
-      <ApiData />
+      <ApiData buses={buses} />
       <Backend />
     </>
   );
@@ -338,12 +367,48 @@ function App() {
     return <Home search={search} setSearch={setSearch} onSearch={() => go("schedules")} go={go} reviews={reviews} />;
   };
 
+  const content = renderPage();
+const needsBus = ["/seats", "/passenger-details", "/payment"];
+
   return (
   <div className={`app-shell ${darkMode ? "dark" : ""}`} >
+     <OfflineBanner />
+
+    
+
+
+
     <Navbar page={page} go={go} account={account} onLogout={logout} darkMode={darkMode} setDarkMode={setDarkMode} notifications={notifications} setNotifications={setNotifications} />
 
     
-    {renderPage()}
+    <Routes>
+  {PUBLIC_PATHS.map((p) => (
+    <Route key={p} path={p} element={content} />
+  ))}
+
+  {ANY_ROLE_PATHS.map((p) => (
+    <Route key={p} path={p} element={
+      <ProtectedRoute account={account}>{content}</ProtectedRoute>
+    } />
+  ))}
+
+  {USER_ONLY_PATHS.map((p) => (
+    <Route key={p} path={p} element={
+      <ProtectedRoute account={account} allowedRoles={["user"]}>
+        {needsBus.includes(p) && !selectedBus ? <Navigate to="/schedules" replace /> : content}
+      </ProtectedRoute>
+    } />
+  ))}
+
+  {ADMIN_ONLY_PATHS.map((p) => (
+    <Route key={p} path={p} element={
+      <ProtectedRoute account={account} allowedRoles={["admin"]}>{content}</ProtectedRoute>
+    } />
+  ))}
+
+  <Route path="/access-denied" element={<AccessDenied go={go} account={account} />} />
+  <Route path="*" element={<NotFound go={go} />} />
+</Routes>
 
     <Footer />
   </div>

@@ -1,3 +1,4 @@
+import { API_URL } from "../config";
 import { useState, useEffect } from 'react'
 
 
@@ -11,7 +12,7 @@ export default function Backend() {
 
     const [price, setPrice] = useState('');
 
-    const api_url = 'http://localhost:8080/api/product'
+    const api_url = `${API_URL}/api/product`
 
     useEffect(() => {
 

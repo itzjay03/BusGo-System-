@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { getAuthHeaders } from "../api";
+import { useEffect, useMemo, useState } from "react";
+import { API_URL } from "../config";
 
 const emptyBus = {
   company: "",
@@ -16,7 +18,13 @@ const emptyBus = {
 };
 
 function AdminOverview({ bookings, buses = [], setBuses, go, updateBookingStatus, markBookingCompleted, updatePaymentStatus, activityLogs = [], setActivityLogs, reviews = [], setReviews }) {
-  const [section, setSection] = useState("overview");
+  const [section, setSection] = useState(() => {
+  return sessionStorage.getItem("busgo_admin_section") || "overview";
+});
+
+useEffect(() => {
+  sessionStorage.setItem("busgo_admin_section", section);
+}, [section]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All");
   const [busQuery, setBusQuery] = useState("");
@@ -151,11 +159,11 @@ function AdminOverview({ bookings, buses = [], setBuses, go, updateBookingStatus
 
     try {
       const url = editingBus
-        ? `http://localhost:8080/api/buses/${editingBus}`
-        : "http://localhost:8080/api/buses";
+        ? `${API_URL}/api/buses/${editingBus}`
+        : `${API_URL}/api/buses`
       const response = await fetch(url, {
         method: editingBus ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(cleanBus)
       });
 
@@ -183,9 +191,10 @@ function AdminOverview({ bookings, buses = [], setBuses, go, updateBookingStatus
     if (!window.confirm("Remove this bus from the BusGo fleet?")) return;
 
     try {
-      const response = await fetch(`http://localhost:8080/api/buses/${id}`, {
-        method: "DELETE"
-      });
+      const response = await fetch(`${API_URL}/api/buses/${id}`, {
+  method: "DELETE",
+  headers: await getAuthHeaders()
+});
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));

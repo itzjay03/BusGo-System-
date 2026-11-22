@@ -1,5 +1,7 @@
 const path = require("path");
+const webpack = require("webpack");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
+const CopyPlugin = require("copy-webpack-plugin");
 
 module.exports = {
   entry: "./src/main.jsx",
@@ -44,6 +46,12 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: "./index.html",
       title: "BusGo | Bus Reservation System"
+    }),
+    new webpack.DefinePlugin({
+      "process.env.API_URL": JSON.stringify(process.env.API_URL || "http://localhost:8080")
+    }),
+    new CopyPlugin({
+      patterns: [{ from: "public", to: "." }]
     })
   ],
   devServer: {

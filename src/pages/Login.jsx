@@ -3,7 +3,8 @@ import {
   signInWithPopup,
   signInWithEmailAndPassword
 } from "firebase/auth";
-import { auth, googleProvider } from "../firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, googleProvider, db } from "../firebase";
 import busgoLoginLogo from "../assets/busgo-login-logo.png";
 import googleReferenceLogo from "../assets/google-reference-logo.png";
 import heroBusImage from "../hero-bus.jpg";
@@ -14,51 +15,77 @@ function Login({ onLogin, go }) {
   const [error, setError] = useState("");
 
   // Firebase users are passengers by default. These accounts are allowed to enter the admin area.
-  const adminEmails = ["admin@busgo.com"];
+  const getUserRole = async (uid) => {
+  const userRef = doc(db, "users", uid);
+  const userSnap = await getDoc(userRef);
 
-  const getRole = (email) =>
-    adminEmails.includes(email.trim().toLowerCase()) ? "admin" : "user";
+  if (!userSnap.exists()) {
+    throw new Error("User role not found in Firestore.");
+  }
 
-  const googleLogin = async () => {
+  const userData = userSnap.data();
+
+  if (!["admin", "user"].includes(userData.role)) {
+    throw new Error("Invalid user role.");
+  }
+
+  return userData.role;
+};
+
+ const googleLogin = async () => {
   try {
+    setError("");
+
     const result = await signInWithPopup(auth, googleProvider);
+    const role = await getUserRole(result.user.uid);
 
     onLogin({
       name: result.user.displayName,
       email: result.user.email,
-      role: getRole(result.user.email || "")
+      role: role
     });
 
   } catch (error) {
     console.error("Google Login Error:", error);
-    setError("Google login failed. Please try again.");
+
+    setError(
+      error.message === "User role not found in Firestore."
+        ? "Your account has no assigned role. Please contact the administrator."
+        : "Google login failed. Please try again."
+    );
   }
 };
 
-  const submit = async (e) => {
+const submit = async (e) => {
   e.preventDefault();
 
   const email = form.email.trim().toLowerCase();
 
   try {
+    setError("");
+
     const result = await signInWithEmailAndPassword(
       auth,
       email,
       form.password
     );
 
-    setError("");
+    const role = await getUserRole(result.user.uid);
 
     onLogin({
       name: result.user.displayName || email,
       email: result.user.email,
-      role: getRole(result.user.email || email)
+      role: role
     });
 
   } catch (error) {
     console.error("Email Login Error:", error);
 
-    setError("Invalid email or password.");
+    setError(
+      error.message === "User role not found in Firestore."
+        ? "Your account has no assigned role. Please contact the administrator."
+        : "Invalid email or password."
+    );
   }
 };
 
