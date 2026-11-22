@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useCloudDoc } from "../cloud";
 
 const statusSteps = ["Pending", "Confirmed", "Boarding", "Departed", "On the way", "Arriving", "Completed"];
 
@@ -18,17 +19,17 @@ function TravelCenter({ account, bookings = [], buses = [], go, onSelectBus, onC
   const [walletFilter, setWalletFilter] = useState("Upcoming");
   const [verifyRef, setVerifyRef] = useState("");
   const [verifyResult, setVerifyResult] = useState(null);
-  const [cart, setCart] = useState(() => JSON.parse(localStorage.getItem(storageKey("cart")) || "[]"));
-  const [passengerProfiles, setPassengerProfiles] = useState(() => JSON.parse(localStorage.getItem(storageKey("passengers")) || "[]"));
+  const [cart, setCart] = useCloudDoc("user", "cart", [], account);
+  const [passengerProfiles, setPassengerProfiles] = useCloudDoc("user", "passengers", [], account);
   const [refundBooking, setRefundBooking] = useState(null);
   const [rescheduleBooking, setRescheduleBooking] = useState(null);
   const [opsFilter, setOpsFilter] = useState("All");
-  const [settings, setSettings] = useState(() => JSON.parse(localStorage.getItem("busgo_frontend_settings") || "{\"bookingFee\":50,\"cancellation\":\"Free cancellation before departure\",\"notifications\":true}"));
+  const [settings] = useCloudDoc("global", "frontend_settings", { bookingFee: 50, cancellation: "Free cancellation before departure", notifications: true }, account);
   const [formMessage, setFormMessage] = useState("");
-  const [favorites, setFavorites] = useState(() => JSON.parse(localStorage.getItem(storageKey("favorites")) || "[]"));
-  const [checkins, setCheckins] = useState(() => JSON.parse(localStorage.getItem(storageKey("checkins")) || "[]"));
-  const [noshow, setNoshow] = useState(() => JSON.parse(localStorage.getItem(storageKey("noshow")) || "[]"));
-  const [opsNotes, setOpsNotes] = useState(() => JSON.parse(localStorage.getItem("busgo_ops_notes") || "[]"));
+  const [favorites, setFavorites] = useCloudDoc("user", "favorites", [], account);
+  const [checkins, setCheckins] = useCloudDoc("user", "checkins", [], account);
+  const [noshow, setNoshow] = useCloudDoc("user", "noshow", [], account);
+  const [opsNotes, setOpsNotes] = useCloudDoc("user", "ops_notes", [], account);
 
   const occupancy = useMemo(() => buses.map(b => {
     const routeBookings = bookings.filter(x => x.bus === b.company && x.from === b.from && x.to === b.to && x.status !== "Cancelled" && x.status !== "Rejected");
@@ -60,13 +61,6 @@ function TravelCenter({ account, bookings = [], buses = [], go, onSelectBus, onC
   };
   const printPage = () => window.print();
   const statusIndex = b => Math.max(0, statusSteps.indexOf(b?.status));
-  useEffect(() => { localStorage.setItem(storageKey("cart"), JSON.stringify(cart)); }, [cart]);
-  useEffect(() => { localStorage.setItem(storageKey("passengers"), JSON.stringify(passengerProfiles)); }, [passengerProfiles]);
-  useEffect(() => { localStorage.setItem("busgo_frontend_settings", JSON.stringify(settings)); }, [settings]);
-  useEffect(() => { localStorage.setItem(storageKey("favorites"), JSON.stringify(favorites)); }, [favorites]);
-  useEffect(() => { localStorage.setItem(storageKey("checkins"), JSON.stringify(checkins)); }, [checkins]);
-  useEffect(() => { localStorage.setItem(storageKey("noshow"), JSON.stringify(noshow)); }, [noshow]);
-  useEffect(() => { localStorage.setItem("busgo_ops_notes", JSON.stringify(opsNotes)); }, [opsNotes]);
   const addToCart = bus => setCart(current => current.some(x => x.id === bus.id) ? current : [...current, bus]);
   const removeFromCart = id => setCart(current => current.filter(x => x.id !== id));
   const toggleFavorite = bus => setFavorites(current => current.some(x => x.id === bus.id) ? current.filter(x => x.id !== bus.id) : [...current, bus]);

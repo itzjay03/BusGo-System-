@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useCloudDoc } from "../cloud";
 
-function OperationsCenter({ bookings = [], buses = [], go }) {
+function OperationsCenter({ account, bookings = [], buses = [], go }) {
   const [tab, setTab] = useState("operations");
   const [notice, setNotice] = useState("");
   const [fleet, setFleet] = useState(() => buses.map((b, i) => ({ ...b, operational: i % 5 !== 4, driver: ["Marco Santos", "Daniel Cruz", "Ana Reyes"][i % 3], maintenance: i % 4 === 0 })));
-  const [incidents, setIncidents] = useState(() => JSON.parse(localStorage.getItem("busgo_ops_incidents") || "[]"));
-  const [checkins, setCheckins] = useState(() => JSON.parse(localStorage.getItem("busgo_ops_checkins") || "[]"));
-  const [noShows, setNoShows] = useState(() => JSON.parse(localStorage.getItem("busgo_ops_noshows") || "[]"));
-  const [refunds, setRefunds] = useState(() => JSON.parse(localStorage.getItem("busgo_ops_refunds") || "[]"));
-  const [maintenance, setMaintenance] = useState(() => JSON.parse(localStorage.getItem("busgo_ops_maintenance") || "[]"));
+  const [incidents, setIncidents] = useCloudDoc("admin", "ops_incidents", [], account);
+  const [checkins, setCheckins] = useCloudDoc("admin", "ops_checkins", [], account);
+  const [noShows, setNoShows] = useCloudDoc("admin", "ops_noshows", [], account);
+  const [refunds, setRefunds] = useCloudDoc("admin", "ops_refunds", [], account);
+  const [maintenance, setMaintenance] = useCloudDoc("admin", "ops_maintenance", [], account);
 
   const confirmed = bookings.filter((b) => b.status === "Confirmed");
   const revenue = bookings.reduce((n, b) => n + Number(b.total || b.price || 0), 0);
@@ -17,11 +18,6 @@ function OperationsCenter({ bookings = [], buses = [], go }) {
   const todayBookings = bookings.filter((b) => b.date === today);
   const activeFleet = fleet.filter((b) => b.operational && !b.maintenance).length;
   const delayed = incidents.filter((i) => i.type === "Delay").length;
-  useEffect(() => { localStorage.setItem("busgo_ops_incidents", JSON.stringify(incidents)); }, [incidents]);
-  useEffect(() => { localStorage.setItem("busgo_ops_checkins", JSON.stringify(checkins)); }, [checkins]);
-  useEffect(() => { localStorage.setItem("busgo_ops_noshows", JSON.stringify(noShows)); }, [noShows]);
-  useEffect(() => { localStorage.setItem("busgo_ops_refunds", JSON.stringify(refunds)); }, [refunds]);
-  useEffect(() => { localStorage.setItem("busgo_ops_maintenance", JSON.stringify(maintenance)); }, [maintenance]);
 
   const routes = useMemo(() => {
     const map = new Map();

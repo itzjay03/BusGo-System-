@@ -1,4 +1,5 @@
 import { getAuthHeaders } from "../api";
+import { useCloudDoc } from "../cloud";
 import { useEffect, useMemo, useState } from "react";
 import { API_URL } from "../config";
 
@@ -17,7 +18,7 @@ const emptyBus = {
   status: "Active"
 };
 
-function AdminOverview({ bookings, buses = [], setBuses, go, updateBookingStatus, markBookingCompleted, updatePaymentStatus, activityLogs = [], setActivityLogs, reviews = [], setReviews }) {
+function AdminOverview({ account, bookings, buses = [], setBuses, go, updateBookingStatus, markBookingCompleted, updatePaymentStatus, activityLogs = [], setActivityLogs, reviews = [], setReviews }) {
   const [section, setSection] = useState(() => {
   return sessionStorage.getItem("busgo_admin_section") || "overview";
 });
@@ -41,10 +42,10 @@ useEffect(() => {
   const [reviewQuery, setReviewQuery] = useState("");
   const [reviewFilter, setReviewFilter] = useState("All");
   const [selectedReview, setSelectedReview] = useState(null);
-  const [settings, setSettings] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("busgo_admin_settings") || "null") || { bookingCutoff: "2", autoComplete: true, onlinePayments: true, emailAlerts: true, maintenanceMode: false }; }
-    catch { return { bookingCutoff: "2", autoComplete: true, onlinePayments: true, emailAlerts: true, maintenanceMode: false }; }
-  });
+  const defaultAdminSettings = { bookingCutoff: "2", autoComplete: true, onlinePayments: true, emailAlerts: true, maintenanceMode: false };
+  const [savedSettings, setSavedSettings] = useCloudDoc("global", "admin_settings", defaultAdminSettings, account);
+  const [settings, setSettings] = useState(defaultAdminSettings);
+  useEffect(() => { setSettings({ ...defaultAdminSettings, ...savedSettings }); }, [savedSettings]);
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
 
@@ -484,7 +485,7 @@ useEffect(() => {
                 <div className="settings-toggle"><div><strong>Automatic trip completion</strong><small>Move confirmed reservations to Completed after their scheduled trip.</small></div><button type="button" className={`settings-switch ${settings.autoComplete?"on":""}`} onClick={()=>setSettings({...settings,autoComplete:!settings.autoComplete})} aria-label="Toggle automatic trip completion"><span></span></button></div>
                 <div className="settings-toggle"><div><strong>Online payments</strong><small>Allow passengers to choose online payment during checkout.</small></div><button type="button" className={`settings-switch ${settings.onlinePayments?"on":""}`} onClick={()=>setSettings({...settings,onlinePayments:!settings.onlinePayments})} aria-label="Toggle online payments"><span></span></button></div>
                 <div className="settings-toggle"><div><strong>Booking email alerts</strong><small>Show booking and payment updates in the passenger notification flow.</small></div><button type="button" className={`settings-switch ${settings.emailAlerts?"on":""}`} onClick={()=>setSettings({...settings,emailAlerts:!settings.emailAlerts})} aria-label="Toggle booking alerts"><span></span></button></div>
-                <div className="settings-actions"><button className="btn btn-primary rounded-pill px-4" onClick={()=>{localStorage.setItem("busgo_admin_settings",JSON.stringify(settings));setSettingsSaved(true);setTimeout(()=>setSettingsSaved(false),1800)}}><i className="bi bi-check2 me-2"></i>Save settings</button>{settingsSaved&&<span><i className="bi bi-check-circle me-1"></i>Settings saved</span>}</div>
+                <div className="settings-actions"><button className="btn btn-primary rounded-pill px-4" onClick={()=>{setSavedSettings(settings);setSettingsSaved(true);setTimeout(()=>setSettingsSaved(false),1800)}}><i className="bi bi-check2 me-2"></i>Save settings</button>{settingsSaved&&<span><i className="bi bi-check-circle me-1"></i>Settings saved</span>}</div>
               </div>
               <div className="admin-settings-side">
                 <div className="admin-card settings-status-card"><span className="settings-status-icon"><i className="bi bi-shield-check"></i></span><small>SYSTEM STATUS</small><h4>{settings.maintenanceMode ? "Maintenance mode" : "System ready"}</h4><p>{settings.maintenanceMode ? "Passenger access is marked for maintenance." : "BusGo is configured for normal passenger operations."}</p><button className={`btn rounded-pill ${settings.maintenanceMode?"btn-warning":"btn-outline-secondary"}`} onClick={()=>setSettings({...settings,maintenanceMode:!settings.maintenanceMode})}>{settings.maintenanceMode?"Disable maintenance":"Enable maintenance"}</button></div>

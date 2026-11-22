@@ -29,6 +29,9 @@ import OfflineBanner from "./components/OfflineBanner";
 import Notifications from "./pages/Notifications";
 import Reviews from "./pages/Reviews";
 import { API_URL } from "./config";
+import { signOut } from "firebase/auth";
+import { auth } from "./firebase";
+import { useCloudItems, useTakenSeats, updateUserDoc } from "./cloud";
 
 
 
@@ -56,13 +59,15 @@ const page = Object.keys(ROUTES).find((key) => ROUTES[key] === location.pathname
   const [passenger, setPassenger] = useState(null);
   const [ticketBooking, setTicketBooking] = useState(null);
   const [buses, setBuses] = useState(() => JSON.parse(localStorage.getItem("busgo_buses") || "[]"));
-  const [bookings, setBookings] = useState(() => JSON.parse(localStorage.getItem("busgo_bookings") || "[]"));
   const [search, setSearch] = useState({ from: "Manila", to: "Batangas", date: "", passengers: 1 });
   const [account, setAccount] = useState(() => JSON.parse(localStorage.getItem("busgo_account") || "null"));
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("busgo_dark_mode") === "true");
-  const [reviews, setReviews] = useState(() => JSON.parse(localStorage.getItem("busgo_reviews") || "[]"));
-  const [notifications, setNotifications] = useState(() => JSON.parse(localStorage.getItem("busgo_notifications") || "[]"));
-  const [activityLogs, setActivityLogs] = useState(() => JSON.parse(localStorage.getItem("busgo_activity_logs") || "[]"));
+  // Cloud (MySQL): bookings, reviews, notifications at activity logs. Ang server ang nagfi-filter kung ano ang makikita ng bawat user.
+  const [bookings, setBookings] = useCloudItems("bookings", account);
+  const [reviews, setReviews] = useCloudItems("reviews", account);
+  const [notifications, setNotifications] = useCloudItems("notifications", account);
+  const [activityLogs, setActivityLogs] = useCloudItems("activity_logs", account);
+  const takenSeats = useTakenSeats(account, page === "seats");
 
   useEffect(() => {
     let cancelled = false;
@@ -91,13 +96,9 @@ const page = Object.keys(ROUTES).find((key) => ROUTES[key] === location.pathname
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => { localStorage.setItem("busgo_bookings", JSON.stringify(bookings)); }, [bookings]);
   useEffect(() => { if (buses.length) localStorage.setItem("busgo_buses", JSON.stringify(buses)); }, [buses]);
   useEffect(() => { account ? localStorage.setItem("busgo_account", JSON.stringify(account)) : localStorage.removeItem("busgo_account"); }, [account]);
   useEffect(() => { localStorage.setItem("busgo_dark_mode", String(darkMode)); document.body.classList.toggle("dark-mode", darkMode); }, [darkMode]);
-  useEffect(() => { localStorage.setItem("busgo_reviews", JSON.stringify(reviews)); }, [reviews]);
-  useEffect(() => { localStorage.setItem("busgo_notifications", JSON.stringify(notifications)); }, [notifications]);
-  useEffect(() => { localStorage.setItem("busgo_activity_logs", JSON.stringify(activityLogs)); }, [activityLogs]);
 
   // Automatically mark confirmed trips as completed after their scheduled arrival time.
   useEffect(() => {
@@ -129,7 +130,7 @@ const page = Object.keys(ROUTES).find((key) => ROUTES[key] === location.pathname
       setBookings((current) => current.map((b) => ids.has(b.id) ? { ...b, status: "Completed", completedAt: b.completedAt || new Date().toISOString() } : b));
       setActivityLogs((current) => [
         ...finished.map((b) => ({
-          id: `A-${Date.now()}-${b.id}`, action: "Trip completed", details: `${b.id} automatically completed after arrival time.`, bookingId: b.id, tone: "success", actor: "BusGo system", time: new Date().toISOString()
+          id: `A-completed-${b.id}`, action: "Trip completed", details: `${b.id} automatically completed after arrival time.`, bookingId: b.id, tone: "success", actor: "BusGo system", time: new Date().toISOString()
         })),
         ...current
       ].slice(0, 200));
@@ -138,7 +139,7 @@ const page = Object.keys(ROUTES).find((key) => ROUTES[key] === location.pathname
         const additions = finished
           .filter((b) => !existing.has(`trip-completed:${b.id}`))
           .map((b) => ({
-            id: `N-${Date.now()}-${b.id}`,
+            id: `N-trip-completed-${b.id}`,
             audience: "passenger",
             email: b.email,
             bookingId: b.id,
@@ -156,15 +157,6 @@ const page = Object.keys(ROUTES).find((key) => ROUTES[key] === location.pathname
     const timer = window.setInterval(completeFinishedTrips, 30000);
     return () => window.clearInterval(timer);
   }, [bookings]);
-
-  useEffect(() => {
-    const syncBusGoData = (event) => {
-      if (event.key === "busgo_bookings" && event.newValue) setBookings(JSON.parse(event.newValue));
-      if (event.key === "busgo_notifications" && event.newValue) setNotifications(JSON.parse(event.newValue));
-    };
-    window.addEventListener("storage", syncBusGoData);
-    return () => window.removeEventListener("storage", syncBusGoData);
-  }, []);
 
  const go = (nextPage) => {
   navigate(ROUTES[nextPage] || "/");
@@ -186,6 +178,7 @@ const page = Object.keys(ROUTES).find((key) => ROUTES[key] === location.pathname
   const updateAccount = (nextAccount) => setAccount(nextAccount);
 
   const logout = () => {
+    signOut(auth).catch(() => {});
     setAccount(null); setSelectedBus(null); setSelectedSeat(null); setPassenger(null); go("home");
   };
 
@@ -206,7 +199,7 @@ const page = Object.keys(ROUTES).find((key) => ROUTES[key] === location.pathname
   const confirmPayment = (paymentDetails) => {
     if (!selectedBus || !selectedSeat || !account || !passenger) return;
     const booking = {
-      id: `BG-${Date.now().toString().slice(-6)}`,
+      id: `BG-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 90 + 10)}`,
       passenger: passenger.name,
       email: account.email,
       phone: passenger.phone,
@@ -235,9 +228,7 @@ const page = Object.keys(ROUTES).find((key) => ROUTES[key] === location.pathname
     };
     setBookings((current) => [booking, ...current]);
     addActivity("New reservation", `${booking.passenger} submitted ${booking.route}.`, booking.id, "info");
-    const cartKey = `busgo_cart_${(account.email || "guest").toLowerCase()}`;
-    const savedCart = JSON.parse(localStorage.getItem(cartKey) || "[]");
-    localStorage.setItem(cartKey, JSON.stringify(savedCart.filter(item => item.id !== selectedBus.id)));
+    updateUserDoc("cart", (cart) => (Array.isArray(cart) ? cart : []).filter(item => item.id !== selectedBus.id)).catch(() => {});
     setNotifications(current => [
       { id:`N-${Date.now()}-admin`, audience:"admin", type:"warning", title:"New reservation to review", text:`${booking.passenger} submitted ${booking.id}. Please review and confirm the reservation.`, time:"Just now", read:false },
       { id:`N-${Date.now()}-passenger`, audience:"passenger", email:account.email, type:"info", title:"Reservation submitted", text:`${booking.id} is pending admin confirmation.`, time:"Just now", read:false },
@@ -330,13 +321,13 @@ const page = Object.keys(ROUTES).find((key) => ROUTES[key] === location.pathname
     if (page === "register") return <Register onRegister={handleRegister} go={go} />;
     if (page === "dashboard") return account
       ? account.role === "admin"
-        ? <AdminOverview bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} />
+        ? <AdminOverview account={account} bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} />
         : <UserOverview account={account} bookings={bookings} reviews={reviews} go={go} />
       : <Login onLogin={handleLogin} go={go} />;
     if (page === "admin-dashboard") return !account
       ? <Login onLogin={handleLogin} go={go} />
       : account.role === "admin"
-        ? <AdminOverview bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} />
+        ? <AdminOverview account={account} bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} />
         : <UserOverview account={account} bookings={bookings} reviews={reviews} go={go} />;
    if (page === "api-data") {
   return (
@@ -346,21 +337,21 @@ const page = Object.keys(ROUTES).find((key) => ROUTES[key] === location.pathname
     </>
   );
 }
-    if (page === "schedules") return account?.role === "admin" ? <OperationsCenter bookings={bookings} buses={buses} go={go} /> : <Schedules buses={buses} search={search} setSearch={setSearch} onSelect={selectBus} go={go} />;
-    if (page === "seats") return account && account.role !== "admin" ? <SeatSelection bus={selectedBus} selectedSeat={selectedSeat} setSelectedSeat={setSelectedSeat} onConfirm={continueToPassenger} go={go} bookings={bookings} searchDate={search.date} /> : account?.role === "admin" ? <AdminOverview bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} /> : <Login onLogin={handleLogin} go={go} />;
-    if (page === "passenger-details") return account && account.role !== "admin" && selectedBus && selectedSeat ? <PassengerDetails account={account} selectedBus={selectedBus} selectedSeat={selectedSeat} onConfirm={proceedToPayment} go={go} travelDate={search.date} /> : account?.role === "admin" ? <AdminOverview bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} /> : <Schedules buses={buses} search={search} setSearch={setSearch} onSelect={selectBus} go={go} />;
-    if (page === "payment") return account && account.role !== "admin" && selectedBus && selectedSeat && passenger ? <Payment account={account} selectedBus={selectedBus} selectedSeat={selectedSeat} passenger={passenger} travelDate={search.date} onConfirm={confirmPayment} go={go} /> : account?.role === "admin" ? <AdminOverview bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} /> : <Schedules buses={buses} search={search} setSearch={setSearch} onSelect={selectBus} go={go} />;
-    if (page === "ticket") return account?.role === "admin" ? <AdminOverview bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} /> : ticketBooking ? <Ticket booking={ticketBooking} go={go} /> : <Bookings bookings={bookings.filter((b) => b.email === account?.email)} reviews={reviews} go={go} onCancel={cancelBooking} onTicket={(b) => { setTicketBooking(b); go("ticket"); }} onReview={submitReview} onReschedule={rescheduleBooking} />;
+    if (page === "schedules") return account?.role === "admin" ? <OperationsCenter account={account} bookings={bookings} buses={buses} go={go} /> : <Schedules buses={buses} search={search} setSearch={setSearch} onSelect={selectBus} go={go} />;
+    if (page === "seats") return account && account.role !== "admin" ? <SeatSelection bus={selectedBus} selectedSeat={selectedSeat} setSelectedSeat={setSelectedSeat} onConfirm={continueToPassenger} go={go} bookings={[...takenSeats, ...bookings]} searchDate={search.date} /> : account?.role === "admin" ? <AdminOverview account={account} bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} /> : <Login onLogin={handleLogin} go={go} />;
+    if (page === "passenger-details") return account && account.role !== "admin" && selectedBus && selectedSeat ? <PassengerDetails account={account} selectedBus={selectedBus} selectedSeat={selectedSeat} onConfirm={proceedToPayment} go={go} travelDate={search.date} /> : account?.role === "admin" ? <AdminOverview account={account} bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} /> : <Schedules buses={buses} search={search} setSearch={setSearch} onSelect={selectBus} go={go} />;
+    if (page === "payment") return account && account.role !== "admin" && selectedBus && selectedSeat && passenger ? <Payment account={account} selectedBus={selectedBus} selectedSeat={selectedSeat} passenger={passenger} travelDate={search.date} onConfirm={confirmPayment} go={go} /> : account?.role === "admin" ? <AdminOverview account={account} bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} /> : <Schedules buses={buses} search={search} setSearch={setSearch} onSelect={selectBus} go={go} />;
+    if (page === "ticket") return account?.role === "admin" ? <AdminOverview account={account} bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} /> : ticketBooking ? <Ticket booking={ticketBooking} go={go} /> : <Bookings bookings={bookings.filter((b) => b.email === account?.email)} reviews={reviews} go={go} onCancel={cancelBooking} onTicket={(b) => { setTicketBooking(b); go("ticket"); }} onReview={submitReview} onReschedule={rescheduleBooking} />;
     if (page === "profile") return account ? <Profile account={account} onSave={updateAccount} go={go} /> : <Login onLogin={handleLogin} go={go} />;
     if (page === "notifications") return account ? <Notifications account={account} notifications={notifications} setNotifications={setNotifications} go={go} /> : <Login onLogin={handleLogin} go={go} />;
     if (page === "reviews") return account && account.role !== "admin" ? <Reviews account={account} bookings={bookings.filter((b) => b.email === account.email)} reviews={reviews} go={go} /> : <Login onLogin={handleLogin} go={go} />;
-    if (page === "travel-center") return !account ? <Login onLogin={handleLogin} go={go} /> : account.role === "admin" ? <OperationsCenter bookings={bookings} buses={buses} go={go} /> : <TravelCenter account={account} bookings={bookings} buses={buses} go={go} onSelectBus={selectBus} onCancel={cancelBooking} onReschedule={rescheduleBooking} onTicket={(b) => { setTicketBooking(b); go("ticket"); }} />;
+    if (page === "travel-center") return !account ? <Login onLogin={handleLogin} go={go} /> : account.role === "admin" ? <OperationsCenter account={account} bookings={bookings} buses={buses} go={go} /> : <TravelCenter account={account} bookings={bookings} buses={buses} go={go} onSelectBus={selectBus} onCancel={cancelBooking} onReschedule={rescheduleBooking} onTicket={(b) => { setTicketBooking(b); go("ticket"); }} />;
     if (page === "group-booking") return account && account.role !== "admin" ? <GroupBooking account={account} go={go} /> : <Login onLogin={handleLogin} go={go} />;
-    if (page === "operations") return account?.role === "admin" ? <OperationsCenter bookings={bookings} buses={buses} go={go} /> : <Login onLogin={handleLogin} go={go} />;
+    if (page === "operations") return account?.role === "admin" ? <OperationsCenter account={account} bookings={bookings} buses={buses} go={go} /> : <Login onLogin={handleLogin} go={go} />;
     if (page === "my-trip") return account && account.role !== "admin" ? <MyTrip account={account} bookings={bookings} go={go} onCancel={cancelBooking} onReschedule={rescheduleBooking} onTicket={(b) => { setTicketBooking(b); go("ticket"); }} /> : <Login onLogin={handleLogin} go={go} />;
     if (page === "bookings") {
       if (!account) return <Login onLogin={handleLogin} go={go} />;
-      if (account.role === "admin") return <AdminOverview bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} />;
+      if (account.role === "admin") return <AdminOverview account={account} bookings={bookings} buses={buses} setBuses={setBuses} go={go} updateBookingStatus={updateBookingStatus} markBookingCompleted={markBookingCompleted} updatePaymentStatus={updatePaymentStatus} activityLogs={activityLogs} setActivityLogs={setActivityLogs} reviews={reviews} setReviews={setReviews} />;
       const visible = bookings.filter((b) => b.email === account.email);
       return <Bookings bookings={visible} reviews={reviews} go={go} onCancel={cancelBooking} onTicket={(b) => { setTicketBooking(b); go("ticket"); }} onReview={submitReview} onReschedule={rescheduleBooking} />;
     }

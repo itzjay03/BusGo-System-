@@ -1,8 +1,8 @@
 import { useState } from "react";
+import { useCloudDoc } from "../cloud";
 
 function GroupBooking({ account, go }) {
-  const key = `busgo_group_${account?.email}`;
-  const [travellers, setTravellers] = useState(() => JSON.parse(localStorage.getItem(key) || "[]"));
+  const [travellers, setTravellers] = useCloudDoc("user", "group", [], account);
   const [form, setForm] = useState({ name: "", phone: "" });
   const [saved, setSaved] = useState(false);
 
@@ -12,7 +12,6 @@ function GroupBooking({ account, go }) {
     if (travellers.length >= 4) return;
     const next = [...travellers, { id: Date.now(), ...form }];
     setTravellers(next);
-    localStorage.setItem(key, JSON.stringify(next));
     setForm({ name: "", phone: "" });
     setSaved(true);
     setTimeout(() => setSaved(false), 1800);
@@ -21,7 +20,6 @@ function GroupBooking({ account, go }) {
   const remove = (id) => {
     const next = travellers.filter((t) => t.id !== id);
     setTravellers(next);
-    localStorage.setItem(key, JSON.stringify(next));
   };
 
   return <main className="page-content py-5"><div className="container">
